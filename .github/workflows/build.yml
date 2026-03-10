@@ -1,0 +1,48 @@
+name: Build LVGL MicroPython for ESP32-S3-4848S040
+
+on:
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout lvgl_micropython
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+
+      - name: Build firmware (ESP32-S3 SPIRAM_OCT + RGBBus + GT911)
+        run: |
+          python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911
+
+      - name: Find built firmware
+        id: find_fw
+        run: |
+          FW=$(find build/ lib/micropython/ports/esp32/build-* -name "*.bin" -type f 2>/dev/null | head -5)
+          echo "Found firmware files:"
+          echo "$FW"
+          # Copy all .bin files to output dir
+          mkdir -p output
+          find build/ lib/micropython/ports/esp32/build-* -name "*.bin" -type f -exec cp {} output/ \; 2>/dev/null || true
+          find . -maxdepth 1 -name "*.bin" -exec cp {} output/ \; 2>/dev/null || true
+          ls -la output/
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lvgl-micropython-esp32s3-4848s040
+          path: output/*.bin
+          if-no-files-found: warn
