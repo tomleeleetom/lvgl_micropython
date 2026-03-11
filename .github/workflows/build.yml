@@ -24,6 +24,45 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git wget flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
 
+      - name: Disable USB-OTG to free GPIO 19/20 for I2C touch
+        run: |
+          # ESP32-4848S040 uses GPIO 19 for GT911 touch I2C SDA
+          # USB-OTG claims GPIO 19/20, must use USB Serial/JTAG instead
+
+          # Find the board sdkconfig files
+          BOARD_DIR="lib/micropython/ports/esp32/boards/ESP32_GENERIC_S3"
+
+          echo "=== Before modification ==="
+          cat $BOARD_DIR/sdkconfig.board 2>/dev/null || echo "No sdkconfig.board"
+
+          # Add USB Serial/JTAG config (does NOT use GPIO 19/20)
+          cat >> $BOARD_DIR/sdkconfig.board << 'SDKEOF'
+
+          # Disable USB-OTG to free GPIO 19/20 for I2C touch
+          CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+          # CONFIG_ESP_CONSOLE_USB_CDC is not set
+          # CONFIG_TINYUSB is not set
+          # CONFIG_USB_OTG_SUPPORTED is not set
+          SDKEOF
+
+          # Also check SPIRAM_OCT variant
+          VARIANT_DIR="$BOARD_DIR/SPIRAM_OCT"
+          if [ -f "$VARIANT_DIR/sdkconfig.board" ]; then
+            cat >> $VARIANT_DIR/sdkconfig.board << 'SDKEOF'
+
+          # Disable USB-OTG to free GPIO 19/20 for I2C touch
+          CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+          # CONFIG_ESP_CONSOLE_USB_CDC is not set
+          # CONFIG_TINYUSB is not set
+          # CONFIG_USB_OTG_SUPPORTED is not set
+          SDKEOF
+          fi
+
+          echo "=== After modification ==="
+          cat $BOARD_DIR/sdkconfig.board
+          echo "---"
+          cat $VARIANT_DIR/sdkconfig.board 2>/dev/null || echo "No variant sdkconfig"
+
       - name: Build firmware (ESP32-S3 SPIRAM_OCT + RGBBus + GT911)
         run: |
           python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911
