@@ -32,214 +32,192 @@ jobs:
           echo "=== Original sdkconfig.board ==="
           cat $BOARD_DIR/sdkconfig.board
 
-          # --- Fix 1: Change ESP-IDF console to USB Serial/JTAG ---
-          # USB Serial/JTAG uses internal USB PHY, does NOT use GPIO 19/20
-          # USB CDC (TinyUSB) uses USB OTG which CLAIMS GPIO 19/20
-          # CRITICAL: sdkconfig lines MUST start at column 0 (no leading whitespace)
           printf '\n# --- ESP32-4848S040 Touch Fix ---\n' >> $BOARD_DIR/sdkconfig.board
-          printf '# Use USB Serial/JTAG for console (frees GPIO 19/20)\n' >> $BOARD_DIR/sdkconfig.board
           printf 'CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y\n' >> $BOARD_DIR/sdkconfig.board
           printf '# CONFIG_ESP_CONSOLE_USB_CDC is not set\n' >> $BOARD_DIR/sdkconfig.board
           printf '# CONFIG_ESP_CONSOLE_UART_DEFAULT is not set\n' >> $BOARD_DIR/sdkconfig.board
 
-          # Also apply to SPIRAM_OCT variant if it has its own sdkconfig
           if [ -f "$VARIANT_DIR/sdkconfig.board" ]; then
             printf '\nCONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y\n' >> $VARIANT_DIR/sdkconfig.board
             printf '# CONFIG_ESP_CONSOLE_USB_CDC is not set\n' >> $VARIANT_DIR/sdkconfig.board
             printf '# CONFIG_ESP_CONSOLE_UART_DEFAULT is not set\n' >> $VARIANT_DIR/sdkconfig.board
           fi
 
-          # --- Fix 2: Disable MicroPython USBDevice (TinyUSB) ---
-          # This prevents MicroPython from initializing USB OTG on GPIO 19/20
           printf '\n// Disable USB OTG to free GPIO 19/20 for I2C touch\n' >> $BOARD_DIR/mpconfigboard.h
           printf '#define MICROPY_HW_ENABLE_USBDEV (0)\n' >> $BOARD_DIR/mpconfigboard.h
 
-          echo ""
           echo "=== Modified sdkconfig.board ==="
           cat $BOARD_DIR/sdkconfig.board
-          echo ""
           echo "=== Modified mpconfigboard.h ==="
           cat $BOARD_DIR/mpconfigboard.h
-          echo ""
-          echo "=== Variant sdkconfig ==="
-          cat $VARIANT_DIR/sdkconfig.board 2>/dev/null || echo "No variant sdkconfig"
 
-      - name: Add frozen test module (runs on display without serial)
+      - name: Add frozen test module
         run: |
           MODULES_DIR="lib/micropython/ports/esp32/modules"
-
           echo "=== Original _boot.py ==="
           cat $MODULES_DIR/_boot.py
+          python3 > $MODULES_DIR/frozen_test.py << 'CREATEPY'
+          print("""\
+          import gc, time
+          from machine import Pin, SoftI2C, mem32
 
-          # Create frozen_test.py - shows GPIO 19 test results on display
-          cat > $MODULES_DIR/frozen_test.py << 'PYEOF'
-import gc, time
-from machine import Pin, SoftI2C, mem32
+          _cs = Pin(39, Pin.OUT, value=1)
+          _clk = Pin(48, Pin.OUT, value=0)
+          _mosi = Pin(47, Pin.OUT, value=0)
+          Pin(38, Pin.OUT, value=1)
 
-# === 1. ST7701S Display Init ===
-_cs = Pin(39, Pin.OUT, value=1)
-_clk = Pin(48, Pin.OUT, value=0)
-_mosi = Pin(47, Pin.OUT, value=0)
-Pin(38, Pin.OUT, value=1)
+          def _w9(dc, b):
+              _mosi.value(dc); _clk.value(1); _clk.value(0)
+              for i in range(7, -1, -1):
+                  _mosi.value((b >> i) & 1); _clk.value(1); _clk.value(0)
 
-def _w9(dc, b):
-    _mosi.value(dc); _clk.value(1); _clk.value(0)
-    for i in range(7, -1, -1):
-        _mosi.value((b >> i) & 1); _clk.value(1); _clk.value(0)
+          def _cmd(c, d=None):
+              _cs.value(0); _w9(0, c)
+              if d:
+                  for b in d: _w9(1, b)
+              _cs.value(1)
 
-def _cmd(c, d=None):
-    _cs.value(0); _w9(0, c)
-    if d:
-        for b in d: _w9(1, b)
-    _cs.value(1)
+          _cmd(0xFF,[0x77,0x01,0x00,0x00,0x10])
+          _cmd(0xC0,[0x3B,0x00]);_cmd(0xC1,[0x0D,0x02]);_cmd(0xC2,[0x21,0x08])
+          _cmd(0xCD,[0x18])
+          _cmd(0xB0,[0x00,0x11,0x18,0x0E,0x11,0x06,0x07,0x08,0x07,0x22,0x04,0x12,0x0F,0xAA,0x31,0x18])
+          _cmd(0xB1,[0x00,0x11,0x19,0x0E,0x12,0x07,0x08,0x08,0x08,0x22,0x04,0x11,0x11,0xA9,0x32,0x18])
+          _cmd(0xFF,[0x77,0x01,0x00,0x00,0x11])
+          _cmd(0xB0,[0x60]);_cmd(0xB1,[0x32]);_cmd(0xB2,[0x07]);_cmd(0xB3,[0x80])
+          _cmd(0xB5,[0x49]);_cmd(0xB7,[0x85]);_cmd(0xB8,[0x21])
+          _cmd(0xC1,[0x78]);_cmd(0xC2,[0x78])
+          _cmd(0xE0,[0x00,0x1B,0x02])
+          _cmd(0xE1,[0x08,0xA0,0x00,0x00,0x07,0xA0,0x00,0x00,0x00,0x44,0x44])
+          _cmd(0xE2,[0x11,0x11,0x44,0x44,0xED,0xA0,0x00,0x00,0xEC,0xA0,0x00,0x00])
+          _cmd(0xE3,[0x00,0x00,0x11,0x11]);_cmd(0xE4,[0x44,0x44])
+          _cmd(0xE5,[0x0A,0xE9,0xD8,0xA0,0x0C,0xEB,0xD8,0xA0,0x0E,0xED,0xD8,0xA0,0x10,0xEF,0xD8,0xA0])
+          _cmd(0xE6,[0x00,0x00,0x11,0x11]);_cmd(0xE7,[0x44,0x44])
+          _cmd(0xE8,[0x09,0xE8,0xD8,0xA0,0x0B,0xEA,0xD8,0xA0,0x0D,0xEC,0xD8,0xA0,0x0F,0xEE,0xD8,0xA0])
+          _cmd(0xEB,[0x02,0x00,0xE4,0xE4,0x88,0x00,0x40]);_cmd(0xEC,[0x3C,0x00])
+          _cmd(0xED,[0xAB,0x89,0x76,0x54,0x02,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x20,0x45,0x67,0x98,0xBA])
+          _cmd(0xFF,[0x77,0x01,0x00,0x00,0x00])
+          _cmd(0x3A,[0x55]);_cmd(0x11);time.sleep_ms(120);_cmd(0x29);time.sleep_ms(50)
+          del _cs, _clk, _mosi, _w9, _cmd
+          gc.collect()
 
-_cmd(0xFF,[0x77,0x01,0x00,0x00,0x10])
-_cmd(0xC0,[0x3B,0x00]);_cmd(0xC1,[0x0D,0x02]);_cmd(0xC2,[0x21,0x08])
-_cmd(0xCD,[0x18])
-_cmd(0xB0,[0x00,0x11,0x18,0x0E,0x11,0x06,0x07,0x08,0x07,0x22,0x04,0x12,0x0F,0xAA,0x31,0x18])
-_cmd(0xB1,[0x00,0x11,0x19,0x0E,0x12,0x07,0x08,0x08,0x08,0x22,0x04,0x11,0x11,0xA9,0x32,0x18])
-_cmd(0xFF,[0x77,0x01,0x00,0x00,0x11])
-_cmd(0xB0,[0x60]);_cmd(0xB1,[0x32]);_cmd(0xB2,[0x07]);_cmd(0xB3,[0x80])
-_cmd(0xB5,[0x49]);_cmd(0xB7,[0x85]);_cmd(0xB8,[0x21])
-_cmd(0xC1,[0x78]);_cmd(0xC2,[0x78])
-_cmd(0xE0,[0x00,0x1B,0x02])
-_cmd(0xE1,[0x08,0xA0,0x00,0x00,0x07,0xA0,0x00,0x00,0x00,0x44,0x44])
-_cmd(0xE2,[0x11,0x11,0x44,0x44,0xED,0xA0,0x00,0x00,0xEC,0xA0,0x00,0x00])
-_cmd(0xE3,[0x00,0x00,0x11,0x11]);_cmd(0xE4,[0x44,0x44])
-_cmd(0xE5,[0x0A,0xE9,0xD8,0xA0,0x0C,0xEB,0xD8,0xA0,0x0E,0xED,0xD8,0xA0,0x10,0xEF,0xD8,0xA0])
-_cmd(0xE6,[0x00,0x00,0x11,0x11]);_cmd(0xE7,[0x44,0x44])
-_cmd(0xE8,[0x09,0xE8,0xD8,0xA0,0x0B,0xEA,0xD8,0xA0,0x0D,0xEC,0xD8,0xA0,0x0F,0xEE,0xD8,0xA0])
-_cmd(0xEB,[0x02,0x00,0xE4,0xE4,0x88,0x00,0x40]);_cmd(0xEC,[0x3C,0x00])
-_cmd(0xED,[0xAB,0x89,0x76,0x54,0x02,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x20,0x45,0x67,0x98,0xBA])
-_cmd(0xFF,[0x77,0x01,0x00,0x00,0x00])
-_cmd(0x3A,[0x55]);_cmd(0x11);time.sleep_ms(120);_cmd(0x29);time.sleep_ms(50)
-del _cs, _clk, _mosi, _w9, _cmd
-gc.collect()
+          import lvgl as lv
+          import lcd_bus, rgb_display, task_handler
 
-# === 2. LVGL Display ===
-import lvgl as lv
-import lcd_bus, rgb_display, task_handler
+          display_bus = lcd_bus.RGBBus(
+              hsync=16, vsync=17, de=18, pclk=21,
+              data0=11, data1=12, data2=13, data3=14, data4=0,
+              data5=8, data6=20, data7=3, data8=46, data9=9, data10=10,
+              data11=4, data12=5, data13=6, data14=7, data15=15,
+              freq=12000000,
+              hsync_front_porch=10, hsync_pulse_width=8, hsync_back_porch=50,
+              vsync_front_porch=10, vsync_pulse_width=8, vsync_back_porch=20,
+          )
+          bs = 480*48*2
+          b1 = display_bus.allocate_framebuffer(bs, lcd_bus.MEMORY_SPIRAM)
+          b2 = display_bus.allocate_framebuffer(bs, lcd_bus.MEMORY_SPIRAM)
+          disp = rgb_display.RGBDisplay(
+              data_bus=display_bus, display_width=480, display_height=480,
+              frame_buffer1=b1, frame_buffer2=b2,
+              color_byte_order=rgb_display.BYTE_ORDER_BGR,
+              color_space=lv.COLOR_FORMAT.RGB565,
+          )
+          disp.init()
+          th = task_handler.TaskHandler()
 
-display_bus = lcd_bus.RGBBus(
-    hsync=16, vsync=17, de=18, pclk=21,
-    data0=11, data1=12, data2=13, data3=14, data4=0,
-    data5=8, data6=20, data7=3, data8=46, data9=9, data10=10,
-    data11=4, data12=5, data13=6, data14=7, data15=15,
-    freq=12000000,
-    hsync_front_porch=10, hsync_pulse_width=8, hsync_back_porch=50,
-    vsync_front_porch=10, vsync_pulse_width=8, vsync_back_porch=20,
-)
-bs = 480*48*2
-b1 = display_bus.allocate_framebuffer(bs, lcd_bus.MEMORY_SPIRAM)
-b2 = display_bus.allocate_framebuffer(bs, lcd_bus.MEMORY_SPIRAM)
-disp = rgb_display.RGBDisplay(
-    data_bus=display_bus, display_width=480, display_height=480,
-    frame_buffer1=b1, frame_buffer2=b2,
-    color_byte_order=rgb_display.BYTE_ORDER_BGR,
-    color_space=lv.COLOR_FORMAT.RGB565,
-)
-disp.init()
-th = task_handler.TaskHandler()
+          scr = lv.obj()
+          scr.set_style_bg_color(lv.color_hex(0x1A1A2E), 0)
+          results = []
 
-# === 3. Show test results on display ===
-scr = lv.obj()
-scr.set_style_bg_color(lv.color_hex(0x1A1A2E), 0)
-results = []
+          def add_line(txt, color=0xFFFFFF):
+              results.append((txt, color))
 
-def add_line(txt, color=0xFFFFFF):
-    results.append((txt, color))
+          add_line("GPIO 19 / I2C Touch Test", 0x48DBFB)
+          add_line("Firmware v3 (frozen module)", 0x48DBFB)
+          add_line("")
 
-add_line("GPIO 19 / I2C Touch Test", 0x48DBFB)
-add_line("Firmware v3 (frozen module)", 0x48DBFB)
-add_line("")
+          p = Pin(19, Pin.OUT, value=0)
+          time.sleep_ms(10)
+          v0 = Pin(19, Pin.IN).value()
+          p = Pin(19, Pin.OUT, value=1)
+          time.sleep_ms(10)
+          v1 = Pin(19, Pin.IN).value()
 
-# Test GPIO 19 controllability
-p = Pin(19, Pin.OUT, value=0)
-time.sleep_ms(10)
-v0 = Pin(19, Pin.IN).value()
-p = Pin(19, Pin.OUT, value=1)
-time.sleep_ms(10)
-v1 = Pin(19, Pin.IN).value()
+          add_line("GPIO19: LOW->{} HIGH->{}".format(v0, v1))
+          if v0 == 0 and v1 == 1:
+              add_line("GPIO 19 FREE!", 0x00B894)
+          elif v0 == 0:
+              add_line("GPIO 19 partially free", 0xFDCB6E)
+          else:
+              add_line("GPIO 19 STUCK :(", 0xE94560)
 
-add_line("GPIO19: LOW->{} HIGH->{}".format(v0, v1))
-if v0 == 0 and v1 == 1:
-    add_line("GPIO 19 FREE!", 0x00B894)
-elif v0 == 0:
-    add_line("GPIO 19 partially free", 0xFDCB6E)
-else:
-    add_line("GPIO 19 STUCK :(", 0xE94560)
+          import machine
+          if hasattr(machine, 'USBDevice'):
+              add_line("USBDevice: EXISTS (bad)", 0xE94560)
+          else:
+              add_line("USBDevice: gone! (good)", 0x00B894)
 
-# Check USBDevice existence
-import machine
-if hasattr(machine, 'USBDevice'):
-    add_line("USBDevice: EXISTS (bad)", 0xE94560)
-else:
-    add_line("USBDevice: gone! (good)", 0x00B894)
+          add_line("")
+          add_line("I2C Scan (SDA=19 SCL=45):")
+          time.sleep_ms(200)
+          try:
+              i2c = SoftI2C(scl=Pin(45), sda=Pin(19), freq=100000)
+              devs = i2c.scan()
+              if devs:
+                  add_line("FOUND: {}".format([hex(d) for d in devs]), 0x00B894)
+                  if 0x5D in devs:
+                      add_line("GT911 at 0x5D!", 0x00FF00)
+                  elif 0x14 in devs:
+                      add_line("GT911 at 0x14!", 0x00FF00)
+              else:
+                  add_line("No devices found", 0xE94560)
+              del i2c
+          except Exception as e:
+              add_line("I2C Error: {}".format(e), 0xE94560)
 
-# I2C Scan on SDA=19 SCL=45
-add_line("")
-add_line("I2C Scan (SDA=19 SCL=45):")
-time.sleep_ms(200)
-try:
-    i2c = SoftI2C(scl=Pin(45), sda=Pin(19), freq=100000)
-    devs = i2c.scan()
-    if devs:
-        add_line("FOUND: {}".format([hex(d) for d in devs]), 0x00B894)
-        if 0x5D in devs:
-            add_line("GT911 at 0x5D!", 0x00FF00)
-        elif 0x14 in devs:
-            add_line("GT911 at 0x14!", 0x00FF00)
-    else:
-        add_line("No devices found", 0xE94560)
-    del i2c
-except Exception as e:
-    add_line("I2C Error: {}".format(e), 0xE94560)
+          add_line("")
+          IO_MUX_19 = 0x60009050
+          add_line("IO_MUX_19: {:#010x}".format(mem32[IO_MUX_19]), 0x636E72)
 
-# Register dump
-add_line("")
-IO_MUX_19 = 0x60009050
-add_line("IO_MUX_19: {:#010x}".format(mem32[IO_MUX_19]), 0x636E72)
+          y = 30
+          for txt, col in results:
+              if txt:
+                  lb = lv.label(scr)
+                  lb.set_text(txt)
+                  lb.set_style_text_color(lv.color_hex(col), 0)
+                  lb.set_style_text_font(lv.font_montserrat_16, 0)
+                  lb.align(lv.ALIGN.TOP_LEFT, 30, y)
+              y += 30
 
-# Render all results on screen
-y = 30
-for txt, col in results:
-    if txt:
-        lb = lv.label(scr)
-        lb.set_text(txt)
-        lb.set_style_text_color(lv.color_hex(col), 0)
-        lb.set_style_text_font(lv.font_montserrat_16, 0)
-        lb.align(lv.ALIGN.TOP_LEFT, 30, y)
-    y += 30
+          lv.screen_load(scr)
+          while True:
+              time.sleep_ms(100)
+          """)
+          CREATEPY
+          echo "=== frozen_test.py created ==="
+          head -5 $MODULES_DIR/frozen_test.py
+          wc -l $MODULES_DIR/frozen_test.py
 
-lv.screen_load(scr)
-while True:
-    time.sleep_ms(100)
-PYEOF
-
-          # Append to _boot.py: auto-create main.py on first boot
-          # After filesystem is mounted, if no main.py exists, create one
-          # that imports our frozen test module
-          cat >> $MODULES_DIR/_boot.py << 'PYEOF'
-
-# --- Auto-create main.py for GPIO 19 test ---
-import os as _boot_os
-try:
-    _boot_os.stat("/main.py")
-except OSError:
-    try:
-        _f = open("/main.py", "w")
-        _f.write("import frozen_test\n")
-        _f.close()
-    except:
-        pass
-PYEOF
-
-          echo ""
-          echo "=== Modified _boot.py ==="
-          cat $MODULES_DIR/_boot.py
-          echo ""
-          echo "=== Frozen modules ==="
-          ls -la $MODULES_DIR/
+      - name: Patch _boot.py to auto-create main.py
+        run: |
+          MODULES_DIR="lib/micropython/ports/esp32/modules"
+          python3 << 'BOOTPATCH'
+          path = "lib/micropython/ports/esp32/modules/_boot.py"
+          with open(path, "a") as f:
+              f.write("\n# --- Auto-create main.py for GPIO 19 test ---\n")
+              f.write("import os as _boot_os\n")
+              f.write("try:\n")
+              f.write("    _boot_os.stat('/main.py')\n")
+              f.write("except OSError:\n")
+              f.write("    try:\n")
+              f.write("        _f = open('/main.py', 'w')\n")
+              f.write("        _f.write('import frozen_test\\n')\n")
+              f.write("        _f.close()\n")
+              f.write("    except:\n")
+              f.write("        pass\n")
+          print("=== Patched _boot.py ===")
+          with open(path) as f:
+              print(f.read())
+          BOOTPATCH
 
       - name: Build firmware
         run: |
