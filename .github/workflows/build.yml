@@ -1,7 +1,7 @@
 name: Build LVGL MicroPython for ESP32-S3-4848S040
 
 on:
-  workflow_dispatch:  # Manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,64 +24,66 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git wget flex bison gperf cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
 
-      - name: Disable USB-OTG to free GPIO 19/20 for I2C touch
+      - name: Free GPIO 19/20 for I2C touch
         run: |
-          # ESP32-4848S040 uses GPIO 19 for GT911 touch I2C SDA
-          # USB-OTG claims GPIO 19/20, must use USB Serial/JTAG instead
-
-          # Find the board sdkconfig files
           BOARD_DIR="lib/micropython/ports/esp32/boards/ESP32_GENERIC_S3"
-
-          echo "=== Before modification ==="
-          cat $BOARD_DIR/sdkconfig.board 2>/dev/null || echo "No sdkconfig.board"
-
-          # Add USB Serial/JTAG config (does NOT use GPIO 19/20)
-          cat >> $BOARD_DIR/sdkconfig.board << 'SDKEOF'
-
-          # Disable USB-OTG to free GPIO 19/20 for I2C touch
-          CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
-          # CONFIG_ESP_CONSOLE_USB_CDC is not set
-          # CONFIG_TINYUSB is not set
-          # CONFIG_USB_OTG_SUPPORTED is not set
-          SDKEOF
-
-          # Also check SPIRAM_OCT variant
           VARIANT_DIR="$BOARD_DIR/SPIRAM_OCT"
-          if [ -f "$VARIANT_DIR/sdkconfig.board" ]; then
-            cat >> $VARIANT_DIR/sdkconfig.board << 'SDKEOF'
 
-          # Disable USB-OTG to free GPIO 19/20 for I2C touch
+          echo "=== Original sdkconfig.board ==="
+          cat $BOARD_DIR/sdkconfig.board
+
+          # --- Fix 1: Change ESP-IDF console to USB Serial/JTAG ---
+          # USB Serial/JTAG uses internal USB PHY, does NOT use GPIO 19/20
+          # USB CDC (TinyUSB) uses USB OTG which CLAIMS GPIO 19/20
+          cat >> $BOARD_DIR/sdkconfig.board << 'EOF'
+
+          # --- ESP32-4848S040 Touch Fix ---
+          # Use USB Serial/JTAG for console (frees GPIO 19/20)
           CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
           # CONFIG_ESP_CONSOLE_USB_CDC is not set
-          # CONFIG_TINYUSB is not set
-          # CONFIG_USB_OTG_SUPPORTED is not set
-          SDKEOF
+          # CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
+          EOF
+
+          # Also apply to SPIRAM_OCT variant if it has its own sdkconfig
+          if [ -f "$VARIANT_DIR/sdkconfig.board" ]; then
+            cat >> $VARIANT_DIR/sdkconfig.board << 'EOF'
+          CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+          # CONFIG_ESP_CONSOLE_USB_CDC is not set
+          # CONFIG_ESP_CONSOLE_UART_DEFAULT is not set
+          EOF
           fi
 
-          echo "=== After modification ==="
+          # --- Fix 2: Disable MicroPython USBDevice (TinyUSB) ---
+          # This prevents MicroPython from initializing USB OTG on GPIO 19/20
+          echo "" >> $BOARD_DIR/mpconfigboard.h
+          echo "// Disable USB OTG to free GPIO 19/20 for I2C touch" >> $BOARD_DIR/mpconfigboard.h
+          echo "#define MICROPY_HW_ENABLE_USBDEV (0)" >> $BOARD_DIR/mpconfigboard.h
+
+          echo ""
+          echo "=== Modified sdkconfig.board ==="
           cat $BOARD_DIR/sdkconfig.board
-          echo "---"
+          echo ""
+          echo "=== Modified mpconfigboard.h ==="
+          cat $BOARD_DIR/mpconfigboard.h
+          echo ""
+          echo "=== Variant sdkconfig ==="
           cat $VARIANT_DIR/sdkconfig.board 2>/dev/null || echo "No variant sdkconfig"
 
-      - name: Build firmware (ESP32-S3 SPIRAM_OCT + RGBBus + GT911)
+      - name: Build firmware
         run: |
           python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911
 
-      - name: Find built firmware
-        id: find_fw
+      - name: Collect firmware
         run: |
-          FW=$(find build/ lib/micropython/ports/esp32/build-* -name "*.bin" -type f 2>/dev/null | head -5)
-          echo "Found firmware files:"
-          echo "$FW"
-          # Copy all .bin files to output dir
           mkdir -p output
           find build/ lib/micropython/ports/esp32/build-* -name "*.bin" -type f -exec cp {} output/ \; 2>/dev/null || true
           find . -maxdepth 1 -name "*.bin" -exec cp {} output/ \; 2>/dev/null || true
+          echo "=== Built files ==="
           ls -la output/
 
-      - name: Upload firmware artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lvgl-micropython-esp32s3-4848s040
+          name: lvgl-micropython-esp32s3-4848s040-v2
           path: output/*.bin
           if-no-files-found: warn
