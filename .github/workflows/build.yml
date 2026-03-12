@@ -485,20 +485,17 @@ jobs:
 
       - name: Collect firmware
         run: |
+          BUILD_DIR="lib/micropython/ports/esp32/build-ESP32_GENERIC_S3-SPIRAM_OCT"
           mkdir -p output
-          echo "=== Searching for .bin files ==="
-          find . -name "*.bin" -type f | grep -v ".git" | while read f; do
-            echo "Found: $f ($(stat --printf='%s' "$f") bytes)"
-            cp "$f" output/
-          done
+          echo "=== Build directory contents ==="
+          ls -la "$BUILD_DIR/"
+          echo "=== Copying firmware files ==="
+          cp "$BUILD_DIR/firmware.bin" output/firmware.bin
+          cp "$BUILD_DIR/micropython.bin" output/micropython.bin
+          cp "$BUILD_DIR/bootloader/bootloader.bin" output/bootloader.bin
+          cp "$BUILD_DIR/partition_table/partition-table.bin" output/partition-table.bin
           echo "=== Output directory ==="
           ls -la output/
-          FILE_COUNT=$(find output -name "*.bin" -type f | wc -l)
-          echo "Total .bin files: $FILE_COUNT"
-          if [ "$FILE_COUNT" -eq 0 ]; then
-            echo "ERROR: No .bin files found!"
-            exit 1
-          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
