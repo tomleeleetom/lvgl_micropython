@@ -440,21 +440,69 @@ jobs:
           with open(path) as f:
               print(f.read())
 
+      - name: Verify repo structure
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Top-level files ==="
+          ls -la
+          echo "=== Check make.py ==="
+          if [ -f make.py ]; then echo "make.py EXISTS"; head -5 make.py; else echo "ERROR: make.py NOT FOUND"; fi
+          echo "=== Check micropython port ==="
+          if [ -d lib/micropython/ports/esp32 ]; then echo "ESP32 port EXISTS"; ls lib/micropython/ports/esp32/; else echo "ERROR: ESP32 port NOT FOUND"; fi
+          echo "=== Check modules dir ==="
+          ls -la lib/micropython/ports/esp32/modules/ 2>/dev/null || echo "modules dir not found"
+          echo "=== Check frozen_app.py was created ==="
+          if [ -f lib/micropython/ports/esp32/modules/frozen_app.py ]; then
+            echo "frozen_app.py EXISTS"
+            wc -l lib/micropython/ports/esp32/modules/frozen_app.py
+            head -3 lib/micropython/ports/esp32/modules/frozen_app.py
+          else
+            echo "ERROR: frozen_app.py NOT FOUND"
+          fi
+
       - name: Build firmware
         run: |
+          set -e
+          echo "=== Starting build ==="
           python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911
+          echo "=== Build completed ==="
+
+      - name: Find all bin files
+        if: always()
+        run: |
+          echo "=== All .bin files in repo ==="
+          find . -name "*.bin" -type f 2>/dev/null | head -30
+          echo "=== All firmware-like files ==="
+          find . -name "micropython*" -type f 2>/dev/null | head -20
+          find . -name "firmware*" -type f 2>/dev/null | head -20
+          echo "=== Build directories ==="
+          find . -type d -name "build*" 2>/dev/null | head -10
+          for d in $(find . -type d -name "build*" 2>/dev/null | head -5); do
+            echo "--- Contents of $d ---"
+            ls -la "$d" 2>/dev/null | head -20
+          done
 
       - name: Collect firmware
         run: |
           mkdir -p output
-          find build/ lib/micropython/ports/esp32/build-* -name "*.bin" -type f -exec cp {} output/ 2>/dev/null || true
-          find . -maxdepth 1 -name "*.bin" -exec cp {} output/ 2>/dev/null || true
-          echo "=== Built files ==="
+          echo "=== Searching for .bin files ==="
+          find . -name "*.bin" -type f | grep -v ".git" | while read f; do
+            echo "Found: $f ($(stat --printf='%s' "$f") bytes)"
+            cp "$f" output/
+          done
+          echo "=== Output directory ==="
           ls -la output/
+          FILE_COUNT=$(find output -name "*.bin" -type f | wc -l)
+          echo "Total .bin files: $FILE_COUNT"
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "ERROR: No .bin files found!"
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: lvgl-micropython-esp32s3-4848s040-v4
           path: output/*.bin
-          if-no-files-found: warn
+          if-no-files-found: error
