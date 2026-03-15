@@ -231,7 +231,7 @@ jobs:
           aGl0ID0gIiIKbGFzdF9zY29yZSA9IDAKbmVlZF9yZWRyYXcgPSBGYWxzZQoKIyA9PT09PT09PT09
           PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0KIyA2LiBV
           SSBDb2xvcnMgKyBTY3JlZW5zCiMgPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09
-          PT09PT09PT09PT09PT09PT09PT09PT09CkNfQkcgPSBsdi5jb2xvcl9oZXgoMHgwRDFCMkEpCkNf
+          PT09PT09PT09PT09PT09PT09PT09PT09CkNfQkcgPSBsdi5jb2xvcl9oZXgoMHgxMDJFNEEpCkNf
           R0IgPSBsdi5jb2xvcl9oZXgoMHgwRjM0NjApCkNfREIgPSBsdi5jb2xvcl9oZXgoMHhFOTQ1NjAp
           CkNfT0sgPSBsdi5jb2xvcl9oZXgoMHgwMEI4OTQpCkNfV0FJVCA9IGx2LmNvbG9yX2hleCgweEZE
           Q0I2RSkKQ19XSElURSA9IGx2LmNvbG9yX2hleCgweEZGRkZGRikKQ19HUkFZID0gbHYuY29sb3Jf
@@ -268,7 +268,7 @@ jobs:
           bGQuc2V0X3N0eWxlX3RleHRfY29sb3IoQ19XSElURSwgMCkKICAgIGlmIF9kYl9kc2M6CiAgICAg
           ICAgbGQuYWxpZ24obHYuQUxJR04uTEVGVF9NSUQsIDkwLCAwKQogICAgZWxzZToKICAgICAgICBs
           ZC5jZW50ZXIoKQoKICAgIHYgPSBsdi5sYWJlbChtZW51X3NjcikKICAgIHRjaCA9ICJUb3VjaCBP
-          SyIgaWYgdG91Y2hfb2sgZWxzZSAiTm8gVG91Y2giCiAgICB2LnNldF90ZXh0KCJ2MTQgfCA0ODQ4
+          SyIgaWYgdG91Y2hfb2sgZWxzZSAiTm8gVG91Y2giCiAgICB2LnNldF90ZXh0KCJ2MTUgfCA0ODQ4
           UzA0MCB8IHt9Ii5mb3JtYXQodGNoKSkKICAgIHYuc2V0X3N0eWxlX3RleHRfY29sb3IoQ19HUkFZ
           LCAwKQogICAgdi5zZXRfc3R5bGVfdGV4dF9mb250KEZPTlRfU00sIDApCiAgICB2LmFsaWduKGx2
           LkFMSUdOLkJPVFRPTV9NSUQsIDAsIC0yMCkKCmRlZiBidWlsZF9nYW1lKCk6CiAgICBnbG9iYWwg
@@ -1348,7 +1348,7 @@ jobs:
         run: |
           set -e
           echo "=== Starting build ==="
-          python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911
+          python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911 LV_CFLAGS="-DLV_FONT_MONTSERRAT_28=1 -DLV_FONT_MONTSERRAT_48=1"
           echo "=== Build completed ==="
 
       - name: Collect firmware
@@ -1368,6 +1368,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lvgl-micropython-esp32s3-4848s040-v6
+          name: lvgl-micropython-esp32s3-4848s040-v7
           path: output/*.bin
           if-no-files-found: error
