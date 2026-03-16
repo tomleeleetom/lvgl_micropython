@@ -271,7 +271,7 @@ jobs:
           MCkKICAgIGlmIF9kYl9kc2M6CiAgICAgICAgbGQuYWxpZ24obHYuQUxJR04uTEVGVF9NSUQsIDkw
           LCAwKQogICAgZWxzZToKICAgICAgICBsZC5jZW50ZXIoKQoKICAgIHYgPSBsdi5sYWJlbChtZW51
           X3NjcikKICAgIHRjaCA9ICJUb3VjaCBPSyIgaWYgdG91Y2hfb2sgZWxzZSAiTm8gVG91Y2giCiAg
-          ICB2LnNldF90ZXh0KCJ2MTggfCA0ODQ4UzA0MCB8IHt9Ii5mb3JtYXQodGNoKSkKICAgIHYuc2V0
+          ICB2LnNldF90ZXh0KCJ2MTkgfCA0ODQ4UzA0MCB8IHt9Ii5mb3JtYXQodGNoKSkKICAgIHYuc2V0
           X3N0eWxlX3RleHRfY29sb3IoQ19HUkFZLCAwKQogICAgdi5zZXRfc3R5bGVfdGV4dF9mb250KEZP
           TlRfU00sIDApCiAgICB2LmFsaWduKGx2LkFMSUdOLkJPVFRPTV9NSUQsIDAsIC0yMCkKCmRlZiBi
           dWlsZF9nYW1lKCk6CiAgICBnbG9iYWwgZ2FtZV9zY3IsIHdfYXBwLCB3X2JvYXJkLCB3X2FwcHN0
@@ -1346,11 +1346,53 @@ jobs:
           with open(path) as f:
               print(f.read())
 
+      - name: Enable large LVGL fonts
+        shell: python
+        run: |
+          import os, glob
+          fonts = [28, 32, 40, 48]
+          patterns = ["lib/lvgl/lv_conf.h", "lib/lv_conf.h", "lib/lvgl/src/lv_conf_internal.h"]
+          found = []
+          for p in patterns:
+              found.extend(glob.glob(p))
+          # Also search recursively
+          for f in glob.glob("lib/**/lv_conf.h", recursive=True):
+              if f not in found:
+                  found.append(f)
+          print(f"Found config files: {found}")
+          for conf in found:
+              with open(conf, "r") as f:
+                  content = f.read()
+              changed = False
+              for sz in fonts:
+                  old0 = f"#define LV_FONT_MONTSERRAT_{sz} 0"
+                  old1 = f"#define LV_FONT_MONTSERRAT_{sz}  0"
+                  new = f"#define LV_FONT_MONTSERRAT_{sz} 1"
+                  if old0 in content:
+                      content = content.replace(old0, new)
+                      changed = True
+                      print(f"  Enabled MONTSERRAT_{sz} in {conf}")
+                  elif old1 in content:
+                      content = content.replace(old1, new)
+                      changed = True
+                      print(f"  Enabled MONTSERRAT_{sz} in {conf}")
+              if changed:
+                  with open(conf, "w") as f:
+                      f.write(content)
+              else:
+                  print(f"  No changes needed in {conf}")
+          # Verify
+          for conf in found:
+              with open(conf) as f:
+                  for line in f:
+                      if "LV_FONT_MONTSERRAT_" in line and ("28" in line or "32" in line or "40" in line or "48" in line):
+                          print(f"  {conf}: {line.strip()}")
+
       - name: Build firmware
         run: |
           set -e
           echo "=== Starting build ==="
-          python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911 LV_CFLAGS="-DLV_FONT_MONTSERRAT_28=1 -DLV_FONT_MONTSERRAT_48=1"
+          python3 make.py esp32 BOARD=ESP32_GENERIC_S3 BOARD_VARIANT=SPIRAM_OCT DISPLAY=rgb_display INDEV=gt911
           echo "=== Build completed ==="
 
       - name: Collect firmware
@@ -1370,6 +1412,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lvgl-micropython-esp32s3-4848s040-v7
+          name: lvgl-micropython-esp32s3-4848s040-v8
           path: output/*.bin
           if-no-files-found: error
